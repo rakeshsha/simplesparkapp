@@ -16,45 +16,44 @@ package com.cloudera.sparkwordcount;
  * limitations under the License.
  */
 
-        import java.util.HashMap;
-        import java.util.HashSet;
-        import java.util.Arrays;
-        import java.util.regex.Pattern;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Arrays;
+import java.util.List;
+import java.util.regex.Pattern;
 
-        import kafka.message.MessageAndMetadata;
-        import org.apache.kafka.clients.consumer.ConsumerRecord;
-        import org.apache.spark.api.java.JavaRDD;
-        import org.apache.spark.api.java.JavaSparkContext;
-        import org.apache.spark.streaming.Time;
-        import scala.Tuple2;
+import org.apache.spark.SparkContext;
+import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.sql.DataFrame;
+import org.apache.spark.sql.SQLContext;
+import scala.Tuple2;
 
-        import com.google.common.collect.Lists;
-        import kafka.serializer.StringDecoder;
+import com.google.common.collect.Lists;
+import kafka.serializer.StringDecoder;
 
-        import org.apache.spark.SparkConf;
-        import org.apache.spark.api.java.function.*;
-        import org.apache.spark.streaming.api.java.*;
-        import org.apache.spark.streaming.kafka.KafkaUtils;
-        import org.apache.spark.streaming.Durations;
+import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.function.*;
+import org.apache.spark.streaming.api.java.*;
+import org.apache.spark.streaming.kafka.KafkaUtils;
+import org.apache.spark.streaming.Durations;
 
 /**
  * Consumes messages from one or more topics in Kafka and does wordcount.
  * Usage: JavaDirectKafkaWordCount <brokers> <topics>
- *   <brokers> is a list of one or more Kafka brokers
- *   <topics> is a list of one or more kafka topics to consume from
- *
+ * <brokers> is a list of one or more Kafka brokers
+ * <topics> is a list of one or more kafka topics to consume from
+ * <p>
  * Example:
- *    $ bin/run-example streaming.JavaDirectKafkaWordCount broker1-host:port,broker2-host:port topic1,topic2
+ * $ bin/run-example streaming.JavaDirectKafkaWordCount broker1-host:port,broker2-host:port topic1,topic2
  */
 
-public final class JavaKafkaWordCount{
+public final class JavaKafkaWordCount {
     private static final Pattern SPACE = Pattern.compile(" ");
 
     public static void main(String[] args) {
         if (args.length < 2) {
-            System.err.println("Usage: JavaDirectKafkaWordCount <brokers> <topics>\n" +
-                    "  <brokers> is a list of one or more Kafka brokers\n" +
-                    "  <topics> is a list of one or more kafka topics to consume from\n\n");
+            System.err.println("Usage: JavaDirectKafkaWordCount <brokers> <topics>\n" + "  <brokers> is a list of one or more Kafka brokers\n" + "  <topics> is a list of one or more kafka topics to consume from\n\n");
             System.exit(1);
         }
 
@@ -64,25 +63,21 @@ public final class JavaKafkaWordCount{
 
         // Create context with a 2 seconds batch interval
         SparkConf sparkConf = new SparkConf().setMaster("local[1]").setAppName("JavaDirectKafkaWordCount");
-        JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, Durations.seconds(2));
+        final JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, Durations.seconds(60));
+
+  //      SparkContext sc = new SparkContext(sparkConf);
+//        SQLContext sqlContext = new org.apache.spark.sql.SQLContext(sc);
 
         HashSet<String> topicsSet = new HashSet<String>(Arrays.asList(topics.split(",")));
         HashMap<String, String> kafkaParams = new HashMap<String, String>();
         kafkaParams.put("metadata.broker.list", brokers);
+        kafkaParams.put("auto.offset.reset", "smallest");
 
         // Create direct kafka stream with brokers and topics
-        JavaPairInputDStream<String, String> messages = KafkaUtils.createDirectStream(
-                jssc,
-                String.class,
-                String.class,
-                StringDecoder.class,
-                StringDecoder.class,
-                kafkaParams,
-                topicsSet
-        );
+        JavaPairInputDStream<String, String> messages = KafkaUtils.createDirectStream(jssc, String.class, String.class, StringDecoder.class, StringDecoder.class, kafkaParams, topicsSet);
 
 
-         // Get the lines, split them into words, count the words and print
+        // Get the lines, split them into words, count the words and print
         JavaDStream<String> lines = messages.map(new Function<Tuple2<String, String>, String>() {
             @Override
             public String call(Tuple2<String, String> tuple2) {
@@ -91,8 +86,7 @@ public final class JavaKafkaWordCount{
         });
 
 
-
-        JavaDStream<String> words = lines.flatMap(new FlatMapFunction<String, String>() {
+        final JavaDStream<String> words = lines.flatMap(new FlatMapFunction<String, String>() {
             @Override
             public Iterable<String> call(String x) {
                 return Lists.newArrayList(SPACE.split(x));
@@ -100,22 +94,44 @@ public final class JavaKafkaWordCount{
         });
 
 
-        JavaPairDStream<String, Integer> wordCounts = words.mapToPair(
-                new PairFunction<String, String, Integer>() {
-                    @Override
-                    public Tuple2<String, Integer> call(String s) {
-                        return new Tuple2<String, Integer>(s, 1);
-                    }
-                }).reduceByKey(
-                new Function2<Integer, Integer, Integer>() {
-                    @Override
-                    public Integer call(Integer i1, Integer i2) {
-                        return i1 + i2;
-                    }
-                });
+        final JavaPairDStream<String, Integer> wordCounts = words.mapToPair(new PairFunction<String, String, Integer>() {
+            @Override
+            public Tuple2<String, Integer> call(String s) {
+                return new Tuple2<String, Integer>(s, 1);
+            }
+        }).reduceByKey(new Function2<Integer, Integer, Integer>() {
+            @Override
+            public Integer call(Integer i1, Integer i2) {
+                return i1 + i2;
+            }
+        });
 
         System.out.println("Printing line");
         lines.print();
+
+        System.out.println("Printing count");
+        lines.print(0);
+
+
+        System.out.println("Starting json read");
+/*
+        messages.foreachRDD(new Function<JavaRDD<String>, Void>() {
+            public Void call(JavaRDD<String> rdd) throws Exception {
+                if (rdd != null) {
+                    List<String> result = rdd.collect();
+
+                    for (String temp : result) {
+                        DataFrame people = sqlContext.read().json(temp);
+                        people.printSchema();
+                    }
+                }
+                return;
+            }
+        }
+        );
+*/
+        System.out.println("Printing json schema");
+// The inferred schema can be visualized using the printSchema() method
 
 
         System.out.println("Printing word");
@@ -125,7 +141,6 @@ public final class JavaKafkaWordCount{
         System.out.println("Printing word count");
         wordCounts.print();
         // Start the computation
-
 
 
         jssc.start();
