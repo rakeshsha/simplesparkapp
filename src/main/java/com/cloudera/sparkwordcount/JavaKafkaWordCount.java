@@ -23,11 +23,14 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import org.apache.spark.SparkContext;
+import org.apache.spark.api.java.JavaPairRDD;
+import org.apache.spark.api.java.JavaPairRDD$;
 import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.DataFrame;
 import org.apache.spark.sql.SQLContext;
+import org.apache.spark.streaming.Time;
 import scala.Tuple2;
+import org.apache.spark.sql.Row;
 
 import com.google.common.collect.Lists;
 import kafka.serializer.StringDecoder;
@@ -65,9 +68,6 @@ public final class JavaKafkaWordCount {
         SparkConf sparkConf = new SparkConf().setMaster("local[1]").setAppName("JavaDirectKafkaWordCount");
         final JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, Durations.seconds(60));
 
-  //      SparkContext sc = new SparkContext(sparkConf);
-//        SQLContext sqlContext = new org.apache.spark.sql.SQLContext(sc);
-
         HashSet<String> topicsSet = new HashSet<String>(Arrays.asList(topics.split(",")));
         HashMap<String, String> kafkaParams = new HashMap<String, String>();
         kafkaParams.put("metadata.broker.list", brokers);
@@ -76,6 +76,7 @@ public final class JavaKafkaWordCount {
         // Create direct kafka stream with brokers and topics
         JavaPairInputDStream<String, String> messages = KafkaUtils.createDirectStream(jssc, String.class, String.class, StringDecoder.class, StringDecoder.class, kafkaParams, topicsSet);
 
+        messages.print(3);
 
         // Get the lines, split them into words, count the words and print
         JavaDStream<String> lines = messages.map(new Function<Tuple2<String, String>, String>() {
@@ -84,7 +85,6 @@ public final class JavaKafkaWordCount {
                 return tuple2._2();
             }
         });
-
 
         final JavaDStream<String> words = lines.flatMap(new FlatMapFunction<String, String>() {
             @Override
@@ -107,35 +107,35 @@ public final class JavaKafkaWordCount {
         });
 
         System.out.println("Printing line");
-        lines.print();
+        //lines.print();
 
         System.out.println("Printing count");
-        lines.print(0);
-
+        //lines.print(0);
 
         System.out.println("Starting json read");
-/*
-        messages.foreachRDD(new Function<JavaRDD<String>, Void>() {
-            public Void call(JavaRDD<String> rdd) throws Exception {
-                if (rdd != null) {
-                    List<String> result = rdd.collect();
 
-                    for (String temp : result) {
-                        DataFrame people = sqlContext.read().json(temp);
-                        people.printSchema();
+        lines.foreachRDD(
+                new Function2<JavaRDD<String>, Time, Void>() {
+                    @Override
+                    public Void call(JavaRDD<String> rdd, Time time) {
+
+                        // Get the singleton instance of SQLContext
+                        SQLContext sqlContext = SQLContext.getOrCreate(rdd.context());
+
+                        DataFrame tweet = sqlContext.read().json(rdd);
+                        tweet.select("id","user.location").show();
+                        return null;
                     }
                 }
-                return;
-            }
-        }
-        );
-*/
+                        );
+
+
         System.out.println("Printing json schema");
-// The inferred schema can be visualized using the printSchema() method
+        // The inferred schema can be visualized using the printSchema() method
 
 
         System.out.println("Printing word");
-        words.print();
+        //words.print();
 
 
         System.out.println("Printing word count");
