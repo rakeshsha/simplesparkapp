@@ -26,6 +26,7 @@ import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaPairRDD$;
 import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.DataFrame;
 import org.apache.spark.sql.SQLContext;
 import org.apache.spark.streaming.Time;
@@ -64,9 +65,12 @@ public final class JavaKafkaWordCount {
         String brokers = args[0];
         String topics = args[1];
 
+
+
         // Create context with a 2 seconds batch interval
-        SparkConf sparkConf = new SparkConf().setMaster("local[1]").setAppName("JavaDirectKafkaWordCount");
-        final JavaStreamingContext jssc = new JavaStreamingContext(sparkConf, Durations.seconds(60));
+        SparkConf sparkConf = new SparkConf().setMaster("local[*]").setAppName("JavaDirectKafkaWordCount");
+        JavaSparkContext sc = new JavaSparkContext(sparkConf);
+        final JavaStreamingContext jssc = new JavaStreamingContext(sc, Durations.seconds(60));
 
         HashSet<String> topicsSet = new HashSet<String>(Arrays.asList(topics.split(",")));
         HashMap<String, String> kafkaParams = new HashMap<String, String>();

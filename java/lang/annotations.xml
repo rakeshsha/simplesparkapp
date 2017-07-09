@@ -1,0 +1,8 @@
+<root>
+    <item name='java.lang.String'>
+        <annotation name='java.lang.Deprecated'/>
+    </item>
+    <item name='java.lang.Void'>
+        <annotation name='java.lang.Deprecated'/>
+    </item>
+</root>
