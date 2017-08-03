@@ -1,0 +1,4 @@
+https://www.cloudera.com/documentation/kafka/latest/topics/kafka_installing.html#concept_ctb_k1c_d5
+
+https://www.cloudera.com/documentation/kafka/latest/topics/kafka_using.html
+
