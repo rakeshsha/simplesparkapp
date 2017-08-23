@@ -15,7 +15,7 @@ package com.cloudera.sparkwordcount;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+import java.sql.*;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Arrays;
@@ -61,16 +61,13 @@ public final class JavaKafkaWordCount {
             System.exit(1);
         }
 
-
         String brokers = args[0];
         String topics = args[1];
-
-
 
         // Create context with a 2 seconds batch interval
         SparkConf sparkConf = new SparkConf().setMaster("local[*]").setAppName("JavaDirectKafkaWordCount");
         JavaSparkContext sc = new JavaSparkContext(sparkConf);
-        final JavaStreamingContext jssc = new JavaStreamingContext(sc, Durations.seconds(60));
+        final JavaStreamingContext jssc = new JavaStreamingContext(sc, Durations.seconds(20));
 
         HashSet<String> topicsSet = new HashSet<String>(Arrays.asList(topics.split(",")));
         HashMap<String, String> kafkaParams = new HashMap<String, String>();
@@ -79,8 +76,6 @@ public final class JavaKafkaWordCount {
 
         // Create direct kafka stream with brokers and topics
         JavaPairInputDStream<String, String> messages = KafkaUtils.createDirectStream(jssc, String.class, String.class, StringDecoder.class, StringDecoder.class, kafkaParams, topicsSet);
-
-        messages.print(3);
 
         // Get the lines, split them into words, count the words and print
         JavaDStream<String> lines = messages.map(new Function<Tuple2<String, String>, String>() {
@@ -110,15 +105,22 @@ public final class JavaKafkaWordCount {
             }
         });
 
-        System.out.println("Printing line");
-        //lines.print();
+        //mysql write process object start
 
-        System.out.println("Printing count");
-        //lines.print(0);
+      final java.sql.Connection mysqlConn=new DbConnection(
+             "com.mysql.jdbc.Driver",
+             "jdbc:mysql://localhost:3306/TwitterAnalysis",
+             "root",
+             "cloudera"
+     ).apply();
 
-        System.out.println("Starting json read");
+        // the mysql insert statement for tweet location
+        final String query = " insert into KeywordsData (keyword_Id , keyword , isActive   ,lastHit    , subjectId  )"
+                + " values (?, ?, ?, ?, ?)";
 
-        lines.foreachRDD(
+        //mysql write process object def end
+
+       lines.foreachRDD(
                 new Function2<JavaRDD<String>, Time, Void>() {
                     @Override
                     public Void call(JavaRDD<String> rdd, Time time) {
@@ -128,21 +130,35 @@ public final class JavaKafkaWordCount {
 
                         DataFrame tweet = sqlContext.read().json(rdd);
                         tweet.select("id","user.location").show();
+
+                        // create the mysql insert preparedstatement
+                        PreparedStatement preparedStmt = null;
+                        try {
+                            preparedStmt = mysqlConn.prepareStatement(query);
+                            preparedStmt.setInt (1,
+                                 Integer.parseInt(tweet.select("id").first().toString().substring(1,5))
+
+                            );
+                            preparedStmt.setString (2, tweet.select("user.name").first().toString().substring(1,5));
+                            preparedStmt.setInt   (3, 1);
+                            preparedStmt.setString(4, tweet.select("created_at").first().toString().substring(1,5));
+                            preparedStmt.setInt    (5, -1);
+                            // execute the preparedstatement
+                            preparedStmt.execute();
+
+                            mysqlConn.close();
+
+
+                        } catch (SQLException e) {
+                            e.printStackTrace();
+                        }
+
+
                         return null;
                     }
                 }
                         );
 
-
-        System.out.println("Printing json schema");
-        // The inferred schema can be visualized using the printSchema() method
-
-
-        System.out.println("Printing word");
-        //words.print();
-
-
-        System.out.println("Printing word count");
         wordCounts.print();
         // Start the computation
 
